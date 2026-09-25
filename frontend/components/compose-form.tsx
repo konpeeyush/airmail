@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Attachment01Icon, MailSend01Icon, MinusSignIcon, PlusSignIcon } from "@hugeicons/core-free-icons";
+import { Attachment01Icon, FileImportIcon, MailSend01Icon, MinusSignIcon, PlusSignIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
 import { AttachmentList } from "@/components/attachment-list";
@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/components/ui/toast";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   checkFile,
@@ -29,6 +30,7 @@ import {
 } from "@/lib/email-schema";
 import { formatBytes, shorten } from "@/lib/format";
 import { ACCEPT, LIMITS } from "@/lib/limits";
+import { WELCOME_EMAIL } from "@/lib/templates/welcome-email";
 import { useUiSounds } from "@/lib/sound";
 import { cn } from "@/lib/utils";
 
@@ -135,6 +137,31 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
         const next = { ...current };
         delete next[field as FieldName];
         return next;
+      });
+    }
+  }
+
+  /** Fills the subject and message with the welcome template. Anything it replaces can be undone. */
+  function importExample() {
+    const previous = { subject: values.subject, body: values.body, isHtml: values.isHtml };
+    sounds.add();
+    update("subject", WELCOME_EMAIL.subject);
+    update("body", WELCOME_EMAIL.html);
+    update("isHtml", true);
+
+    if (previous.subject.trim() || previous.body.trim()) {
+      toast.add({
+        type: "info",
+        title: "Example imported",
+        description: "It replaced your subject and message.",
+        actionProps: {
+          children: "Undo",
+          onClick: () => {
+            update("subject", previous.subject);
+            update("body", previous.body);
+            update("isHtml", previous.isHtml);
+          },
+        },
       });
     }
   }
@@ -386,8 +413,21 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
         </Field>
 
         <Field data-invalid={!!errors.body}>
-          <div className="flex items-center justify-between gap-2">
-            <FieldLabel htmlFor="body">Message</FieldLabel>
+          <div className="flex items-center gap-2">
+            <FieldLabel htmlFor="body" className="mr-auto">
+              Message
+            </FieldLabel>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              // An invalid Field turns its contents red; importing isn't part of the error.
+              className="text-muted-foreground"
+              onClick={importExample}
+            >
+              <HugeiconsIcon icon={FileImportIcon} data-icon="inline-start" />
+              Import example
+            </Button>
             <ToggleGroup
               value={[values.isHtml ? "html" : "text"]}
               // Base UI allows deselecting the active item; ignore that so one format is always chosen.
