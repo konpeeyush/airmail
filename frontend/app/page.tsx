@@ -1,6 +1,15 @@
+"use client";
+
+import { useState } from "react";
+
+import { ComposeForm } from "@/components/compose-form";
 import { Separator } from "@/components/ui/separator";
+import type { ComposeValues } from "@/lib/email-schema";
 
 export default function Home() {
+  // Phase 7 stops at client-side validation. Phase 8 replaces this with the API call.
+  const [lastValid, setLastValid] = useState<ComposeValues | null>(null);
+
   return (
     <>
       <header className="flex flex-col gap-1 pb-6">
@@ -10,10 +19,16 @@ export default function Home() {
         </p>
       </header>
 
-      <Separator />
+      <Separator className="mb-6" />
 
-      {/* The compose form lands here in Phase 7. */}
-      <p className="pt-6 text-muted-foreground">Compose form coming next.</p>
+      <ComposeForm onSubmit={setLastValid} />
+
+      {lastValid && (
+        <p role="status" className="pt-4 text-muted-foreground">
+          Passed client-side validation ({lastValid.attachments.length} attachment(s)). Sending is wired up in
+          Phase 8.
+        </p>
+      )}
     </>
   );
 }

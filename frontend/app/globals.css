@@ -13,13 +13,19 @@
 
 /* ---------------------------------------------------------------- theme */
 
+/* shadcn components ship `dark:` classes. Without this line Tailwind applies
+   them whenever the OS is in dark mode; scoped to a .dark class that is never
+   set, they stay off. There is no dark mode. */
+@custom-variant dark (&:is(.dark *));
+
 @theme inline {
   --font-sans: var(--font-primary), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-heading: var(--font-secondary), Georgia, serif;
   --font-mono: "SF Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
 
-  /* the half-step weights need Inter's variable font */
-  --font-weight-book: 460;
+  /* The half-step weights need Inter's variable font. "normal" is the 460
+     body weight, so shadcn's font-normal text matches the rest of the page. */
+  --font-weight-normal: 460;
   --font-weight-strong: 560;
 
   --container-column: 36.375rem;
