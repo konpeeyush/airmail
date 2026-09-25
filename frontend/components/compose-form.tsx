@@ -456,9 +456,11 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
             onChange={(e) => update("body", e.target.value)}
             placeholder={values.isHtml ? "<p>Hello,</p>\n<p>…</p>" : "Hello,"}
             maxLength={LIMITS.MAX_BODY_LENGTH}
-            // Grows with the text up to 16 lines (10 on phones), then scrolls.
+            // Grows with the text up to 16 lines, then scrolls. On phones it also
+            // stops at a third of the screen, so a long message can't fill the
+            // screen and trap every swipe inside the textarea.
             className={cn(
-              "max-h-[calc(16lh+1.125rem)] min-h-48 overflow-y-auto max-md:max-h-[calc(10lh+1.125rem)]",
+              "max-h-[calc(16lh+1.125rem)] min-h-48 overflow-y-auto max-md:max-h-[min(calc(10lh+1.125rem),35dvh)]",
               values.isHtml && "font-mono",
             )}
             spellCheck={!values.isHtml}
@@ -538,9 +540,11 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
       </FieldGroup>
       </fieldset>
 
-      <Separator />
+      <Separator className="max-md:hidden" />
 
-      <div className="flex items-center gap-4">
+      {/* On phones the form is taller than the screen, so the send bar stays
+          pinned to the bottom edge until the end of the form scrolls into view. */}
+      <div className="flex items-center gap-4 max-md:sticky max-md:bottom-0 max-md:z-10 max-md:-mx-6 max-md:border-t max-md:bg-background max-md:px-6 max-md:py-3">
         <Button type="submit" size="lg" disabled={!canSend}>
           {isSending ? (
             <>

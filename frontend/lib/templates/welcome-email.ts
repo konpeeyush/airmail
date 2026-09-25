@@ -10,7 +10,8 @@ const isPublicSite = !/localhost|127\.0\.0\.1/.test(SITE_URL);
 const ASSETS = isPublicSite ? SITE_URL : "https://raw.githubusercontent.com/konpeeyush/airmail/master/frontend/public";
 const CTA_URL = isPublicSite ? SITE_URL : REPO_URL;
 
-const COLORS = {
+/** Shared with the Open Graph card (lib/og.tsx), so the two look like one brand. */
+export const COLORS = {
   page: "#f3f3ef",
   card: "#ffffff",
   line: "#ebebe4",
