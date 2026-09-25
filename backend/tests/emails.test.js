@@ -13,6 +13,10 @@ const valid = { to: 'alice@example.com', subject: 'Hello', body: 'Hi there' };
 // Limits from vitest.config.js: 10 KB per file, 2 files, 15 KB total.
 const KB = 1024;
 const file = (size, fill = 'a') => Buffer.alloc(size, fill);
+// Starts like a real PDF, so it passes the content check.
+const pdf = (size) => Buffer.concat([Buffer.from('%PDF-1.7\n'), file(size - 9)]);
+// A Windows program: "MZ" followed by binary, NUL bytes included.
+const program = () => Buffer.concat([Buffer.from('MZ'), Buffer.alloc(64)]);
 
 /** Multipart request with the valid text fields already filled in. */
 function multipart(fields = valid) {
@@ -98,7 +102,7 @@ describe('POST /api/emails — success', () => {
   it('accepts multipart with attachments and repeated recipient fields', async () => {
     const res = await multipart({ ...valid, isHtml: 'false' })
       .field('to', 'bob@example.com')
-      .attach('attachments', file(2 * KB), { filename: 'report.pdf', contentType: 'application/pdf' })
+      .attach('attachments', pdf(2 * KB), { filename: 'report.pdf', contentType: 'application/pdf' })
       .attach('attachments', Buffer.from('hello'), { filename: 'résumé.txt', contentType: 'text/plain' });
 
     expect(res.status).toBe(200);
@@ -112,6 +116,11 @@ describe('POST /api/emails — success', () => {
     ]);
   });
 
+  it('accepts a JSON body near the character limit, even when multi-byte', async () => {
+    const res = await request(app).post('/api/emails').send({ ...valid, body: 'é'.repeat(99_000) });
+    expect(res.status).toBe(200);
+  });
+
   it('reports recipients the provider rejected', async () => {
     sendMail.mockResolvedValueOnce({ messageId: '<x>', accepted: ['alice@example.com'], rejected: ['bob@example.com'] });
 
@@ -119,6 +128,21 @@ describe('POST /api/emails — success', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.message).toBe('Email sent, but 1 recipient(s) were rejected by the provider');
+  });
+});
+
+describe('POST /api/emails — origin', () => {
+  it('403 for a request from another site; nothing is sent', async () => {
+    const res = await multipart().set('Origin', 'https://evil.example');
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ success: false, message: 'Requests from this origin are not allowed' });
+    expect(sendMail).not.toHaveBeenCalled();
+  });
+
+  it('accepts the frontend origin', async () => {
+    const res = await request(app).post('/api/emails').set('Origin', 'http://localhost:3000').send(valid);
+    expect(res.status).toBe(200);
+    expect(res.headers['access-control-allow-origin']).toBe('http://localhost:3000');
   });
 });
 
@@ -171,8 +195,8 @@ describe('POST /api/emails — attachments', () => {
 
   it('413 when files together are over the total limit', async () => {
     const res = await multipart()
-      .attach('attachments', file(8 * KB), { filename: 'a.pdf', contentType: 'application/pdf' })
-      .attach('attachments', file(8 * KB), { filename: 'b.pdf', contentType: 'application/pdf' });
+      .attach('attachments', pdf(8 * KB), { filename: 'a.pdf', contentType: 'application/pdf' })
+      .attach('attachments', pdf(8 * KB), { filename: 'b.pdf', contentType: 'application/pdf' });
     expect(res.status).toBe(413);
     expect(res.body.message).toMatch(/add up to more than/);
   });
@@ -191,6 +215,21 @@ describe('POST /api/emails — attachments', () => {
       filename: 'sneaky.pdf',
       contentType: 'application/x-msdownload',
     });
+    expect(res.status).toBe(415);
+  });
+
+  it('415 when the content does not match the extension (renamed program)', async () => {
+    const res = await multipart().attach('attachments', program(), {
+      filename: 'invoice.pdf',
+      contentType: 'application/pdf',
+    });
+    expect(res.status).toBe(415);
+    expect(res.body.message).toBe('"invoice.pdf" isn\'t a real .pdf file');
+    expect(sendMail).not.toHaveBeenCalled();
+  });
+
+  it('415 for binary content in a text file', async () => {
+    const res = await multipart().attach('attachments', program(), { filename: 'notes.txt', contentType: 'text/plain' });
     expect(res.status).toBe(415);
   });
 

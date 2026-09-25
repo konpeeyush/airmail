@@ -17,9 +17,22 @@ const optionalString = z
 // message, instead of failing later in the middle of a request.
 const envSchema = z
   .object({
-    NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+    // Defaults to production, so a deploy that forgets NODE_ENV never shows
+    // internal error messages. `pnpm dev` sets development (nodemonConfig).
+    NODE_ENV: z.enum(['development', 'production', 'test']).default('production'),
     PORT: z.coerce.number().int().positive().default(4000),
-    CORS_ORIGIN: z.url().default('http://localhost:3000'),
+    // Stored as a bare origin: browsers send "https://x.com", never "https://x.com/".
+    CORS_ORIGIN: z
+      .url()
+      .default('http://localhost:3000')
+      .transform((url) => new URL(url).origin),
+    // Proxies in front of the API: a hop count (1 on Render, Railway, Fly…),
+    // true, or proxy addresses. Without it every request seems to come from
+    // the proxy, and all users share one rate limit.
+    TRUST_PROXY: z.preprocess(
+      emptyToUndefined,
+      z.union([z.coerce.number().int().nonnegative(), z.stringbool(), z.string()]).optional(),
+    ),
 
     // SMTP. Leave SMTP_HOST empty in development to use a throwaway Ethereal inbox.
     SMTP_HOST: optionalString,
@@ -35,8 +48,9 @@ const envSchema = z
     MAX_FILES: z.coerce.number().int().positive().default(5),
     MAX_TOTAL_SIZE_MB: z.coerce.number().positive().default(15),
 
-    // Emails one IP can send per window
+    // Emails one IP can send per window, and people they can go to in total
     RATE_LIMIT_MAX: z.coerce.number().int().positive().default(20),
+    RATE_LIMIT_MAX_RECIPIENTS: z.coerce.number().int().positive().default(100),
     RATE_LIMIT_WINDOW_MINUTES: z.coerce.number().positive().default(15),
   })
   .superRefine((cfg, ctx) => {

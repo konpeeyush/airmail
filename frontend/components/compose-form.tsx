@@ -156,11 +156,13 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
         description: "It replaced your subject and message.",
         actionProps: {
           children: "Undo",
-          onClick: () => {
-            update("subject", previous.subject);
-            update("body", previous.body);
-            update("isHtml", previous.isHtml);
-          },
+          // Only while the example is untouched, so Undo never throws away later edits.
+          onClick: () =>
+            setValues((current) =>
+              current.subject === WELCOME_EMAIL.subject && current.body === WELCOME_EMAIL.html
+                ? { ...current, ...previous }
+                : current,
+            ),
         },
       });
     }

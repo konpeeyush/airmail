@@ -1,0 +1,35 @@
+# Render Blueprint for the API. In the Render dashboard: New > Blueprint, pick
+# this repo. Values marked `sync: false` are asked for once, on first deploy.
+# The frontend is deployed separately (Vercel, root directory `frontend`).
+services:
+  - type: web
+    name: airmail-api
+    runtime: node
+    plan: free
+    rootDir: backend
+    # Installs only the backend's runtime dependencies from the workspace lockfile.
+    buildCommand: npx --yes pnpm@11.0.6 install --frozen-lockfile --prod --filter backend
+    startCommand: node src/server.js
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      # Render puts one proxy in front of the app
+      - key: TRUST_PROXY
+        value: "1"
+      # The deployed frontend's origin, e.g. https://airmail.vercel.app
+      - key: CORS_ORIGIN
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: MAIL_FROM
+        sync: false

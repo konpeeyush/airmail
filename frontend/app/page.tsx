@@ -1,6 +1,7 @@
 import Image from "next/image";
 
-import cover from "@/assets/cover.webp";import { EmailComposer } from "@/components/email-composer";
+import cover from "@/assets/cover.webp";
+import { EmailComposer } from "@/components/email-composer";
 import { Separator } from "@/components/ui/separator";
 import { APP_NAME } from "@/lib/brand";
 

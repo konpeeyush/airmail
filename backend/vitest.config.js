@@ -11,7 +11,9 @@ export default defineConfig({
       MAX_FILE_SIZE_MB: '0.01', // 10 KB, so tests don't need big buffers
       MAX_FILES: '2',
       MAX_TOTAL_SIZE_MB: '0.015', // 15 KB
+      CORS_ORIGIN: 'http://localhost:3000',
       RATE_LIMIT_MAX: '1000', // rate limiting has its own test file
+      RATE_LIMIT_MAX_RECIPIENTS: '10000',
     },
   },
 });

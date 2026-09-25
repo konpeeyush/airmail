@@ -4,14 +4,16 @@ import multer from 'multer';
 
 import { env } from '../config/env.js';
 import { AppError } from '../utils/AppError.js';
+import { LIMITS } from '../validators/email.schema.js';
 
 const MB = 1024 * 1024;
 
 /**
  * Allowed attachments: extension → MIME types browsers send for it.
- * Both must match, so renaming `virus.exe` to `virus.pdf` isn't enough
- * (the browser still reports the original type) and neither is a spoofed
- * Content-Type on a disallowed extension.
+ * Both must match. This catches unexpected types, but not a renamed file:
+ * browsers pick the MIME type from the file name, so `virus.exe` renamed to
+ * `virus.pdf` arrives as application/pdf. The file's first bytes are checked
+ * too (see SIGNATURES below).
  */
 export const ALLOWED_TYPES = Object.freeze({
   '.pdf': ['application/pdf'],
@@ -28,6 +30,33 @@ export const ALLOWED_TYPES = Object.freeze({
   '.zip': ['application/zip', 'application/x-zip-compressed'],
 });
 
+/** True if `buffer` has `signature` (a string or byte array) at `offset`. */
+function hasBytes(buffer, signature, offset = 0) {
+  const expected = Buffer.from(signature);
+  return buffer.subarray(offset, offset + expected.length).equals(expected);
+}
+
+// .docx and .xlsx are zip archives too.
+const isZip = (buffer) => hasBytes(buffer, 'PK\x03\x04') || hasBytes(buffer, 'PK\x05\x06');
+const isJpeg = (buffer) => hasBytes(buffer, [0xff, 0xd8, 0xff]);
+// Text has no signature, but real text has no NUL bytes, and programs and other binaries do.
+const isText = (buffer) => !buffer.subarray(0, 8192).includes(0);
+
+/** What each allowed type's content must look like, whatever its name says. */
+const SIGNATURES = Object.freeze({
+  '.pdf': (buffer) => hasBytes(buffer, '%PDF-'),
+  '.png': (buffer) => hasBytes(buffer, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  '.jpg': isJpeg,
+  '.jpeg': isJpeg,
+  '.gif': (buffer) => hasBytes(buffer, 'GIF87a') || hasBytes(buffer, 'GIF89a'),
+  '.webp': (buffer) => hasBytes(buffer, 'RIFF') && hasBytes(buffer, 'WEBP', 8),
+  '.txt': isText,
+  '.csv': isText,
+  '.docx': isZip,
+  '.xlsx': isZip,
+  '.zip': isZip,
+});
+
 // Sizes can be fractional MB in env (e.g. 2.5); multer needs whole bytes.
 export const UPLOAD_LIMITS = Object.freeze({
   FIELD_NAME: 'attachments',
@@ -38,8 +67,10 @@ export const UPLOAD_LIMITS = Object.freeze({
 
 const allowedList = Object.keys(ALLOWED_TYPES).join(', ');
 
+const extensionOf = (file) => path.extname(file.originalname).toLowerCase();
+
 function fileFilter(req, file, cb) {
-  const extension = path.extname(file.originalname).toLowerCase();
+  const extension = extensionOf(file);
   const mimeTypes = ALLOWED_TYPES[extension];
 
   if (!mimeTypes || !mimeTypes.includes(file.mimetype)) {
@@ -48,10 +79,50 @@ function fileFilter(req, file, cb) {
   cb(null, true);
 }
 
+// Bytes of attachments read so far, per request.
+const receivedBytes = new WeakMap();
+
+/**
+ * multer.memoryStorage(), plus a running total across all files in the
+ * request. Reading stops as soon as the total passes MAX_TOTAL_SIZE, so an
+ * oversized upload is rejected without being held in memory first. (multer's
+ * own limits only cover one file at a time.)
+ */
+const memoryStorageWithTotalLimit = {
+  _handleFile(req, file, cb) {
+    const chunks = [];
+    let failed = false;
+
+    file.stream.on('data', (chunk) => {
+      if (failed) return;
+      const total = (receivedBytes.get(req) ?? 0) + chunk.length;
+      receivedBytes.set(req, total);
+
+      if (total > UPLOAD_LIMITS.MAX_TOTAL_SIZE) {
+        failed = true;
+        chunks.length = 0;
+        return cb(new AppError(413, `Attachments add up to more than ${env.MAX_TOTAL_SIZE_MB} MB`));
+      }
+      chunks.push(chunk);
+    });
+
+    file.stream.on('end', () => {
+      if (failed) return;
+      const buffer = Buffer.concat(chunks);
+      cb(null, { buffer, size: buffer.length });
+    });
+  },
+
+  _removeFile(req, file, cb) {
+    delete file.buffer;
+    cb(null);
+  },
+};
+
 const parseMultipart = multer({
   // Files stay in memory as Buffers: nothing to clean up on disk, and the
   // limits below bound how much memory one request can use.
-  storage: multer.memoryStorage(),
+  storage: memoryStorageWithTotalLimit,
   fileFilter,
   // Browsers send UTF-8 filenames; multer's default (latin1) would garble "résumé.pdf".
   defParamCharset: 'utf8',
@@ -59,7 +130,9 @@ const parseMultipart = multer({
     fileSize: UPLOAD_LIMITS.MAX_FILE_SIZE,
     files: UPLOAD_LIMITS.MAX_FILES,
     fields: 20,
-    fieldSize: 1 * MB, // per text field; the body limit itself is enforced by validation
+    // Per text field: room for a 100,000-character body in UTF-8 (up to 3 bytes
+    // a character). The character limit itself is enforced by validation.
+    fieldSize: LIMITS.MAX_BODY_LENGTH * 3,
   },
 }).array(UPLOAD_LIMITS.FIELD_NAME, UPLOAD_LIMITS.MAX_FILES);
 
@@ -100,11 +173,11 @@ export function uploadAttachments(req, res, next) {
       return next(new AppError(400, `"${empty.originalname}" is empty`));
     }
 
-    // multer only limits each file; the email as a whole also has to stay
-    // under what SMTP providers accept.
-    const totalSize = files.reduce((sum, file) => sum + file.size, 0);
-    if (totalSize > UPLOAD_LIMITS.MAX_TOTAL_SIZE) {
-      return next(new AppError(413, `Attachments add up to more than ${env.MAX_TOTAL_SIZE_MB} MB`));
+    const disguised = files.find((file) => !SIGNATURES[extensionOf(file)](file.buffer));
+    if (disguised) {
+      return next(
+        new AppError(415, `"${disguised.originalname}" isn't a real ${extensionOf(disguised)} file`),
+      );
     }
 
     req.files = files;

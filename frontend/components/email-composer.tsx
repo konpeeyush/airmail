@@ -27,7 +27,8 @@ function showSentToast(message: string, result: SendResult) {
     result.rejected.length > 0 && `Not delivered to ${result.rejected.join(", ")}.`,
   ].filter(Boolean);
 
-  const previewUrl = result.previewUrl;
+  // Only ever an https link to ethereal.email; anything else is not opened.
+  const previewUrl = result.previewUrl?.startsWith("https://") ? result.previewUrl : undefined;
   toast.add({
     type: "success",
     title: message,

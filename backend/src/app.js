@@ -17,15 +17,27 @@ import routes from './routes/index.js';
 export function createApp() {
   const app = express();
 
+  // Behind a reverse proxy, req.ip (and so the rate limits) must come from
+  // X-Forwarded-For, not the proxy's own address.
+  if (env.TRUST_PROXY !== undefined) {
+    app.set('trust proxy', env.TRUST_PROXY);
+  }
+
   // One line per request: method, path, status, time. Compact while developing,
-  // Apache "combined" format in production, silent in tests.
+  // Apache "combined" format in production, silent in tests. Health checks are
+  // skipped: the keep-alive pinger hits them every few minutes.
   if (env.NODE_ENV !== 'test') {
-    app.use(morgan(env.isProduction ? 'combined' : 'dev'));
+    app.use(
+      morgan(env.isProduction ? 'combined' : 'dev', {
+        skip: (req) => req.originalUrl === '/api/health',
+      }),
+    );
   }
 
   app.use(helmet());
   app.use(cors({ origin: env.CORS_ORIGIN }));
-  app.use(express.json({ limit: '100kb' }));
+  // A 100,000-character body can be ~300 KB of UTF-8, plus JSON escaping.
+  app.use(express.json({ limit: '1mb' }));
 
   app.use('/api', routes);
 

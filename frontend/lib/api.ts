@@ -32,6 +32,15 @@ export class SendError extends Error {
 // Longer than the API's own SMTP timeouts (10s connect, 20s socket), so the
 // server gets to answer with its 502 before the browser gives up.
 const REQUEST_TIMEOUT_MS = 45_000;
+// The timeout also covers the upload, so allow extra time for attachments at
+// a slow ~1 Mbit/s. Otherwise a big upload is abandoned while the server may
+// still send it, and a retry sends the email twice.
+const SLOW_UPLOAD_BYTES_PER_MS = 128;
+
+function timeoutFor(values: ComposeValues): number {
+  const bytes = values.attachments.reduce((sum, file) => sum + file.size, 0);
+  return REQUEST_TIMEOUT_MS + Math.ceil(bytes / SLOW_UPLOAD_BYTES_PER_MS);
+}
 
 const FORM_FIELDS = new Set<FieldName>(["to", "cc", "bcc", "subject", "body", "attachments"]);
 
@@ -81,11 +90,12 @@ export async function sendEmail(values: ComposeValues): Promise<{ message: strin
       method: "POST",
       // No Content-Type header: the browser sets multipart/form-data with its boundary.
       body: toFormData(values),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutFor(values)),
     });
   } catch (error) {
     if (error instanceof DOMException && error.name === "TimeoutError") {
-      throw new SendError("The server took too long to respond. Please try again.", 0);
+      // The request did reach the server, so the email may have gone out anyway.
+      throw new SendError("The server took too long to respond. The email may still have been sent.", 0);
     }
     // fetch rejects (rather than returning a status) when the server is down,
     // the URL is wrong, or CORS blocks the response.

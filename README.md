@@ -78,9 +78,10 @@ Settings are validated with zod when the server starts. A missing or malformed v
 
 | Variable | Default | Description |
 |---|---|---|
-| `NODE_ENV` | `development` | `development`, `production` or `test` |
+| `NODE_ENV` | `production` | `development`, `production` or `test`. `pnpm dev` sets `development`. |
 | `PORT` | `4000` | API port. Not 5000, because macOS AirPlay Receiver uses that port. |
-| `CORS_ORIGIN` | `http://localhost:3000` | The frontend origin allowed to call the API |
+| `CORS_ORIGIN` | `http://localhost:3000` | The frontend origin allowed to call the API. Requests from other sites' pages get a 403. |
+| `TRUST_PROXY` | none | Set behind a reverse proxy (e.g. `1` on Render, Railway or Fly) so rate limits apply per visitor |
 | `SMTP_HOST` | *(empty)* | SMTP server. **Empty in development = Ethereal test inbox. Required in production.** |
 | `SMTP_PORT` | `587` | SMTP port |
 | `SMTP_SECURE` | `true` only if port is 465 | Use TLS from the start of the connection (implicit TLS) |
@@ -91,6 +92,7 @@ Settings are validated with zod when the server starts. A missing or malformed v
 | `MAX_FILES` | `5` | Maximum number of attachments |
 | `MAX_TOTAL_SIZE_MB` | `15` | Maximum size of all attachments together |
 | `RATE_LIMIT_MAX` | `20` | Emails one IP address can send per window |
+| `RATE_LIMIT_MAX_RECIPIENTS` | `100` | Recipients (To + Cc + Bcc) one IP address can reach per window |
 | `RATE_LIMIT_WINDOW_MINUTES` | `15` | Length of the rate-limit window |
 
 ### Frontend: `frontend/.env.local`
@@ -111,7 +113,7 @@ Settings are validated with zod when the server starts. A missing or malformed v
 │ Frontend (Next.js)        │  POST /api/emails        │ API (Express)                            │
 │                           │ ───────────────────────▶ │                                          │
 │ compose form              │                          │ helmet · cors · request log (morgan)     │
-│  └ client-side validation │                          │ rate limit ─────────────▶ 429            │
+│  └ client-side validation │                          │ origin check · rate limit ▶ 403/429      │
 │    (same rules as the API)│                          │ upload (multer, memory) ▶ 413/415/400    │
 │                           │                          │ validate (zod) ─────────▶ 400 + fields   │
 │ shows success / error,    │ ◀─────────────────────── │ controller: builds the email             │
@@ -125,13 +127,15 @@ Settings are validated with zod when the server starts. A missing or malformed v
 
 **What happens on each request**
 
-1. **Rate limit.** Each IP address gets a limited number of sends. This runs first, so a blocked client's files are never read.
-2. **Upload.** multer reads the form data into memory and checks each file's size, the number of files, and the file type. Both the extension and the MIME type must be on the allowlist. It then checks the total size of all files.
+1. **Origin check and rate limit.** Requests from another site's pages are refused, and each IP address gets a limited number of sends. Both run before the upload, so a blocked client's files are never read.
+2. **Upload.** multer reads the form data into memory and checks each file's size, the number of files, and the total size (reading stops as soon as the total is over the limit). Both the extension and the MIME type must be on the allowlist, and the file's first bytes must match its type, so a renamed program is refused.
 3. **Validate.** A zod schema cleans up and checks the text fields:
    - recipients are split on `,` or `;`, trimmed, lowercased and deduplicated, including across To, Cc and Bcc
    - every address must be valid, and there must be at least one recipient
    - subject and body must not be empty, and the subject can't contain line breaks (which blocks header injection)
    - there are limits on subject length, body length and the total number of recipients
+
+   A second rate limit then counts recipients, so one IP address can't reach more than `RATE_LIMIT_MAX_RECIPIENTS` people per window.
 4. **Controller.** Turns the cleaned input into an email. HTML bodies also get a plain-text version generated from the HTML.
 5. **Service.** Sends the email through one reused nodemailer connection setup, with connection timeouts. Any provider error becomes a **502** with a safe message; the real cause is only written to the server log.
 6. **Error handler.** Every error, expected or not, becomes `{ success: false, message, errors? }` with the right status code. In production, unexpected errors return a generic message.
@@ -216,10 +220,11 @@ curl -X POST http://localhost:4000/api/emails \
 | Status | When |
 |---|---|
 | `400` | Validation failed (`errors` lists each field), malformed JSON, too many files, an empty file, or files sent in the wrong field |
+| `403` | The request came from a page on another site (its `Origin` isn't `CORS_ORIGIN`) |
 | `404` | Unknown route |
 | `413` | One file is over `MAX_FILE_SIZE_MB`, or all files together are over `MAX_TOTAL_SIZE_MB` |
-| `415` | A file's type isn't allowed |
-| `429` | Rate limit reached. `RateLimit-*` headers say when to retry. |
+| `415` | A file's type isn't allowed, or its content doesn't match its extension |
+| `429` | Too many emails, or too many recipients, in the window. `RateLimit-*` headers say when to retry. |
 | `502` | The SMTP provider failed (bad credentials, timeout, rejected message) |
 | `500` | An unexpected error. Details are logged; production returns a generic message. |
 
@@ -237,15 +242,16 @@ curl -X POST http://localhost:4000/api/emails \
 pnpm test
 ```
 
-There are 42 backend tests (vitest + supertest), in three files:
+There are 48 backend tests (vitest + supertest), in three files:
 
 - **`tests/emails.test.js`** sends real HTTP requests to the app and covers:
   - successful sends: plain text, HTML with the generated text part, recipient cleanup, attachments, partially rejected recipients
   - every 400 validation case
-  - attachment errors: 413 (file and total), 415 (type and MIME mismatch), 400 (count, empty file, wrong field)
+  - requests from another site's pages refused with a 403
+  - attachment errors: 413 (file and total), 415 (type, MIME mismatch, content that doesn't match the extension), 400 (count, empty file, wrong field)
   - a provider failure returning a 502 that doesn't leak the provider's error, with the API still working afterwards
 - **`tests/email.schema.test.js`** tests the validation schema on its own.
-- **`tests/rateLimit.test.js`** checks the 429 response.
+- **`tests/rateLimit.test.js`** checks both 429 limits (emails and recipients), per client behind a proxy.
 
 The tests fake **nodemailer**, not the app's own email service, so the service's real code runs in every test. They set tiny file limits and never touch the network, so they don't depend on anyone's `.env`.
 
@@ -300,7 +306,7 @@ frontend/
 
 **Assumptions**
 
-- **There's no login.** Anyone who can reach the API can send email. The rate limit and CORS are the only protections, which is fine for this assignment but not for the open internet.
+- **There's no login.** Anyone who can reach the API directly (curl, scripts) can send email; only pages on the frontend's own origin can use it from a browser. The rate limits are the only other protection, which is fine for this assignment but not for the open internet.
 - **Addresses are plain, like `alice@example.com`.** Display-name formats like `"Alice" <alice@example.com>` aren't accepted.
 - **Addresses are lowercased.** Technically the part before the `@` can be case-sensitive, but in practice no provider treats it that way, and lowercasing makes deduplication reliable.
 - **If an address appears in more than one field**, it's kept only in the most visible one (To, then Cc, then Bcc), so nobody receives the email twice.
@@ -312,8 +318,8 @@ frontend/
 |---|---|---|
 | **Sending waits for the SMTP server** (the request is open until the provider answers) | Simple, and the user sees the real outcome. Ethereal takes 5–7 seconds. | A job queue (e.g. BullMQ + Redis) with retries and an immediate `202 Accepted`, plus delivery status from provider webhooks |
 | **Files are held in memory**, not on disk | No temp files to clean up. The size and count limits cap memory use per request. | Streaming uploads to object storage for large files |
-| **File types are checked by extension and MIME type** | Catches renamed files and unexpected types cheaply | Checking the file's actual bytes (magic-byte sniffing) and virus scanning |
-| **The rate-limit counters live in memory** | No extra services needed | A shared store such as Redis when running several instances, plus `trust proxy` behind a load balancer |
+| **File types are checked by extension, MIME type and first bytes** | Catches unexpected types and renamed files cheaply, with no extra dependency | Virus scanning, including inside `.zip` files |
+| **The rate-limit counters live in memory** | No extra services needed | A shared store such as Redis when running several instances |
 | **Ethereal is used automatically in development** | The project runs straight after cloning, with no credentials | Production requires a real `SMTP_HOST`; the config check enforces this |
 | **The frontend repeats the API's limits** in `lib/limits.ts` | Instant feedback without an extra request | A `GET /api/config` endpoint or a shared package, so the rules can't drift apart. The server still enforces them either way. |
 | **Every send opens a new SMTP connection** | Simplest, and fine at this volume | `pool: true` in nodemailer to reuse connections |

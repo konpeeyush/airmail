@@ -1,0 +1,28 @@
+# Pings the API so Render's free tier doesn't spin it down after 15 idle minutes.
+# GitHub may run scheduled jobs late, so pair this with an external pinger
+# (cron-job.org, UptimeRobot) rather than relying on it alone.
+#
+# Setup: Settings > Secrets and variables > Actions > add BACKEND_URL,
+# e.g. https://airmail-api.onrender.com (no trailing slash).
+name: Keep backend awake
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping /api/health
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+        run: |
+          if [ -z "$BACKEND_URL" ]; then
+            echo "BACKEND_URL secret is not set, skipping."
+            exit 0
+          fi
+          # A cold start can take up to a minute, hence the generous timeout.
+          curl -fsS --retry 3 --retry-delay 10 --max-time 90 "$BACKEND_URL/api/health"

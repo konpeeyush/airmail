@@ -22,6 +22,11 @@
     "vitest": "^5.0.1"
   },
   "main": "src/server.js",
+  "nodemonConfig": {
+    "env": {
+      "NODE_ENV": "development"
+    }
+  },
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",

@@ -4,7 +4,9 @@ import { verifyConnection } from './services/email.service.js';
 
 const app = createApp();
 
-const server = app.listen(env.PORT, () => {
+// Express 5 also calls this on a listen error; server.on('error') below handles that.
+const server = app.listen(env.PORT, (err) => {
+  if (err) return;
   console.log(`[server] API listening on http://localhost:${env.PORT} (${env.NODE_ENV})`);
   // Runs in the background: the API is up even if SMTP is not.
   verifyConnection();
