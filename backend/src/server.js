@@ -1,6 +1,7 @@
 import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { verifyConnection } from './services/email.service.js';
+import { startKeepAlive } from './services/keepAlive.js';
 
 const app = createApp();
 
@@ -10,6 +11,8 @@ const server = app.listen(env.PORT, (err) => {
   console.log(`[server] API listening on http://localhost:${env.PORT} (${env.NODE_ENV})`);
   // Runs in the background: the API is up even if SMTP is not.
   verifyConnection();
+  // Stops Render's free tier from putting the API to sleep when idle.
+  startKeepAlive();
 });
 
 server.on('error', (err) => {

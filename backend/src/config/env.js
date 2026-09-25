@@ -52,6 +52,13 @@ const envSchema = z
     RATE_LIMIT_MAX: z.coerce.number().int().positive().default(20),
     RATE_LIMIT_MAX_RECIPIENTS: z.coerce.number().int().positive().default(100),
     RATE_LIMIT_WINDOW_MINUTES: z.coerce.number().positive().default(15),
+
+    // Keep-alive: the API pings its own public URL so Render's free tier
+    // (which sleeps after 15 idle minutes) never spins it down. Render sets
+    // RENDER_EXTERNAL_URL itself; KEEP_ALIVE_URL overrides it. Off when neither is set.
+    KEEP_ALIVE_URL: z.preprocess(emptyToUndefined, z.url().optional()),
+    RENDER_EXTERNAL_URL: z.preprocess(emptyToUndefined, z.url().optional()),
+    KEEP_ALIVE_INTERVAL_MINUTES: z.coerce.number().positive().default(14),
   })
   .superRefine((cfg, ctx) => {
     if (cfg.SMTP_HOST) {
@@ -81,4 +88,9 @@ export const env = Object.freeze({
   useEthereal: !cfg.SMTP_HOST,
   SMTP_SECURE: cfg.SMTP_SECURE ?? cfg.SMTP_PORT === 465,
   MAIL_FROM: cfg.MAIL_FROM ?? cfg.SMTP_USER,
+  // Stored as a bare origin, so a trailing slash doesn't produce "//api/health".
+  KEEP_ALIVE_URL: (() => {
+    const url = cfg.KEEP_ALIVE_URL ?? cfg.RENDER_EXTERNAL_URL;
+    return url && new URL(url).origin;
+  })(),
 });
