@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import localFont from "next/font/local";
 
+import { Toaster } from "@/components/ui/toast";
+
 import "./globals.css";
 
 const inter = Inter({
@@ -34,9 +36,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${inter.variable} ${cooper.variable}`}>
       <body>
-        <main className="mx-auto max-w-column px-4 pt-20 pb-10 max-md:px-6 max-md:pt-8">
-          {children}
-        </main>
+        <Toaster>
+          <main className="mx-auto max-w-column px-4 pt-20 pb-10 max-md:px-6 max-md:pt-8">{children}</main>
+        </Toaster>
       </body>
     </html>
   );

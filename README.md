@@ -39,7 +39,7 @@ pnpm dev             # starts both apps
 | Frontend | http://localhost:3000 |
 | API | http://localhost:4000 (health check: `/api/health`) |
 
-Open the frontend, fill in the form, and click **Send email**. With the default setup, the success message includes a **"View it in the Ethereal test inbox"** link.
+Open the frontend, fill in the form, and click **Send email**. With the default setup, the success toast has a **View** button that opens the email in the Ethereal test inbox.
 
 Other commands (run from the repo root):
 
@@ -137,7 +137,7 @@ Settings are validated with zod when the server starts. A missing or malformed v
 
 **Crash safety.** Express 5 passes errors from async route handlers to the error handler automatically. An unhandled promise rejection is logged and the server keeps running. An uncaught exception is logged and triggers a graceful shutdown, because the process state can no longer be trusted. The server also shuts down cleanly on `SIGINT`/`SIGTERM`.
 
-**Frontend.** The form checks the same rules as the API, so problems show up instantly: files are checked as soon as they're picked, a field's error appears when you leave a field you've edited, and from then on it updates as you type. **Send** stays disabled until To, Subject and Message have content, with a hint saying what's missing. The server still has the final say. When the API returns a 400, each error is shown under its field and focus moves to the first one. While an email is sending, every control is disabled, which also prevents double submits. After a successful send, the form clears and the result shows the Ethereal preview link.
+**Frontend.** The form checks the same rules as the API, so problems show up instantly: files are checked as soon as they're picked, a field's error appears when you leave a field you've edited, and from then on it updates as you type. **Send** stays disabled until To, Subject and Message have content, with a hint saying what's missing. The server still has the final say. When the API returns a 400, each error is shown under its field and focus moves to the first one. While an email is sending, every control is disabled, which also prevents double submits. After a successful send, the form clears and a success toast appears, with a **View** button for the Ethereal preview. Errors stay inline under the form, because they need to stay visible while the user fixes things.
 
 **Sound.** Small interface sounds give feedback on actions, using the same `@web-kits/audio` set as konpeeyush.me. They're synthesised with the Web Audio API, so there are no audio files, and they only play in response to something the user did:
 
@@ -311,5 +311,3 @@ frontend/
 | **The frontend repeats the API's limits** in `lib/limits.ts` | Instant feedback without an extra request | A `GET /api/config` endpoint or a shared package, so the rules can't drift apart. The server still enforces them either way. |
 | **Every send opens a new SMTP connection** | Simplest, and fine at this volume | `pool: true` in nodemailer to reuse connections |
 | **The frontend has no automated tests** | Time; it was tested by hand end to end | Component tests (Testing Library) and a Playwright end-to-end test |
-
-The build history is in [`phase.md`](phase.md), with one commit per phase. The original backend requirements are in [`REQUIREMENTS.md`](REQUIREMENTS.md).
