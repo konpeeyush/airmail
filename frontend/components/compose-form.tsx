@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Attachment01Icon, MailSend01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
@@ -18,6 +18,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
 import { Separator } from "@/components/ui/separator";
+import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
@@ -47,12 +48,25 @@ const ATTACHMENT_HINT = `Up to ${LIMITS.MAX_FILES} files, ${formatBytes(LIMITS.M
   LIMITS.MAX_TOTAL_SIZE,
 )} in total. PDF, images, TXT, CSV, DOCX, XLSX or ZIP.`;
 
+/** Focuses the first field with an error. Returns whether there was one. */
+function focusFirstInvalid(errors: FieldErrors): boolean {
+  const first = FIELD_ORDER.find((field) => errors[field]);
+  if (first) document.getElementById(first)?.focus();
+  return Boolean(first);
+}
+
 type ComposeFormProps = {
-  /** Called with valid values. Wired to the API in Phase 8. */
+  /** Called with values that passed client-side validation. */
   onSubmit: (values: ComposeValues) => void;
+  /** While true every control is disabled, which also prevents double submits. */
+  isSending?: boolean;
+  /** Field errors returned by the API (400). Each clears once its field is edited. */
+  serverErrors?: FieldErrors;
 };
 
-export function ComposeForm({ onSubmit }: ComposeFormProps) {
+const NO_ERRORS: FieldErrors = {};
+
+export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERRORS }: ComposeFormProps) {
   const [values, setValues] = useState<ComposeValues>(EMPTY);
   const [showCc, setShowCc] = useState(false);
   const [showBcc, setShowBcc] = useState(false);
@@ -62,13 +76,35 @@ export function ComposeForm({ onSubmit }: ComposeFormProps) {
   // Files refused at pick time (wrong type, too big…). They never enter state.
   const [rejectedFiles, setRejectedFiles] = useState<string[]>([]);
 
+  // Server errors are copied into state when a new set arrives, so editing a
+  // field can clear its server error without waiting for another round trip.
+  const [receivedServerErrors, setReceivedServerErrors] = useState(serverErrors);
+  const [openServerErrors, setOpenServerErrors] = useState(serverErrors);
+  if (serverErrors !== receivedServerErrors) {
+    setReceivedServerErrors(serverErrors);
+    setOpenServerErrors(serverErrors);
+  }
+
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const errors: FieldErrors = attempted ? validateCompose(values) : {};
+  // Client rules win when both disagree; the server only adds what the client can't know.
+  const errors: FieldErrors = { ...openServerErrors, ...(attempted ? validateCompose(values) : {}) };
+
+  // Move focus to the first field the server rejected.
+  useEffect(() => {
+    focusFirstInvalid(serverErrors);
+  }, [serverErrors]);
   const totalSize = values.attachments.reduce((sum, file) => sum + file.size, 0);
 
   function update<K extends keyof ComposeValues>(field: K, value: ComposeValues[K]) {
     setValues((current) => ({ ...current, [field]: value }));
+    if (field in openServerErrors) {
+      setOpenServerErrors((current) => {
+        const next = { ...current };
+        delete next[field as FieldName];
+        return next;
+      });
+    }
   }
 
   function addFiles(picked: FileList | null) {
@@ -113,14 +149,11 @@ export function ComposeForm({ onSubmit }: ComposeFormProps) {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSending) return;
     setAttempted(true);
 
     const found = validateCompose(values);
-    const firstInvalid = FIELD_ORDER.find((field) => found[field]);
-    if (firstInvalid) {
-      document.getElementById(firstInvalid)?.focus();
-      return;
-    }
+    if (focusFirstInvalid(found)) return;
 
     onSubmit(values);
   }
@@ -137,7 +170,9 @@ export function ComposeForm({ onSubmit }: ComposeFormProps) {
   }
 
   return (
-    <form noValidate onSubmit={handleSubmit} className="flex flex-col gap-6">
+    <form noValidate onSubmit={handleSubmit} aria-busy={isSending} className="flex flex-col gap-6">
+      {/* A disabled fieldset disables every control inside it natively. */}
+      <fieldset disabled={isSending} className="min-w-0">
       <FieldGroup className="gap-4">
         <Field data-invalid={!!errors.to}>
           <FieldLabel htmlFor="to">To</FieldLabel>
@@ -290,13 +325,23 @@ export function ComposeForm({ onSubmit }: ComposeFormProps) {
           />
         </Field>
       </FieldGroup>
+      </fieldset>
 
       <Separator />
 
       <div className="flex items-center justify-between gap-4">
-        <Button type="submit" size="lg">
-          <HugeiconsIcon icon={MailSend01Icon} data-icon="inline-start" />
-          Send email
+        <Button type="submit" size="lg" disabled={isSending}>
+          {isSending ? (
+            <>
+              <Spinner data-icon="inline-start" />
+              Sending…
+            </>
+          ) : (
+            <>
+              <HugeiconsIcon icon={MailSend01Icon} data-icon="inline-start" />
+              Send email
+            </>
+          )}
         </Button>
         {values.attachments.length > 0 && (
           <p className="text-muted-foreground tabular-nums">
