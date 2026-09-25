@@ -1,0 +1,13 @@
+{
+  "name": "email-composer",
+  "private": true,
+  "description": "Email sending system — Express API + Next.js frontend",
+  "packageManager": "pnpm@11.0.6",
+  "engines": {
+    "node": ">=20.9"
+  },
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "test": "pnpm -r test"
+  }
+}

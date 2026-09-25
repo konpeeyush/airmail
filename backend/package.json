@@ -1,0 +1,7 @@
+{
+  "name": "backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Email sending API (Express + Nodemailer)"
+}
