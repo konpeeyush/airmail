@@ -1,10 +1,13 @@
 import { createApp } from './app.js';
 import { env } from './config/env.js';
+import { verifyConnection } from './services/email.service.js';
 
 const app = createApp();
 
 const server = app.listen(env.PORT, () => {
   console.log(`[server] API listening on http://localhost:${env.PORT} (${env.NODE_ENV})`);
+  // Runs in the background: the API is up even if SMTP is not.
+  verifyConnection();
 });
 
 server.on('error', (err) => {
