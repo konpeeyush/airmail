@@ -1,0 +1,123 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+/*
+ * Design language borrowed from konpeeyush.me: one 582px column, 14px Inter at
+ * weight 460, greyscale on warm off-white, hairlines instead of boxes, no
+ * shadows, no dark mode. Hierarchy comes from weight and colour, never size.
+ *
+ * shadcn components read the semantic variables below (--background,
+ * --primary, --border…), so restyling happens here, not in the components.
+ */
+
+/* ---------------------------------------------------------------- theme */
+
+@theme inline {
+  --font-sans: var(--font-primary), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-heading: var(--font-secondary), Georgia, serif;
+  --font-mono: "SF Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+
+  /* the half-step weights need Inter's variable font */
+  --font-weight-book: 460;
+  --font-weight-strong: 560;
+
+  --container-column: 36.375rem;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* ---------------------------------------------------------------- tokens */
+
+:root {
+  --background: #fdfdfc; /* warm off-white, not #fff */
+  --foreground: #111;
+  --card: #fdfdfc;
+  --card-foreground: #111;
+  --popover: #fdfdfc;
+  --popover-foreground: #111;
+
+  --primary: #111;
+  --primary-foreground: #fdfdfc;
+  --secondary: #f4f4f3;
+  --secondary-foreground: #111;
+  --muted: #f4f4f3;
+  /* konpeeyush.me uses rgba(0,0,0,.4) for secondary text; this is a touch
+     darker so helper text and placeholders pass WCAG AA (4.7:1) */
+  --muted-foreground: #737373;
+  --accent: #f4f4f3;
+  --accent-foreground: #111;
+  --destructive: #e5003f;
+
+  --border: #f2f2f2; /* hairlines */
+  --input: #e6e6e6; /* form controls need a touch more contrast than hairlines */
+  --ring: rgba(0, 122, 255, 0.5);
+  --radius: 0.375rem;
+
+  --duration-snappy: 220ms;
+  --ease-snappy: cubic-bezier(0.175, 0.885, 0.32, 1.1);
+  --duration-smooth: 300ms;
+  --ease-smooth: cubic-bezier(0.19, 1, 0.22, 1);
+}
+
+/* ---------------------------------------------------------------- base */
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    @apply bg-background text-foreground font-sans;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    -webkit-tap-highlight-color: transparent;
+    text-size-adjust: none;
+  }
+
+  body {
+    @apply bg-background;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 460;
+    letter-spacing: -0.00563rem;
+    /* no layout shift when content grows past the fold */
+    overflow-y: scroll;
+  }
+
+  ::selection {
+    color: #111;
+    background: #ededed;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
