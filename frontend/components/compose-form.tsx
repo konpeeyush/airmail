@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Attachment01Icon, MailSend01Icon, MinusSignIcon } from "@hugeicons/core-free-icons";
+import { Attachment01Icon, MailSend01Icon, MinusSignIcon, PlusSignIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
 import { AttachmentList } from "@/components/attachment-list";
 import { Button } from "@/components/ui/button";
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import {
   Field,
-  FieldContent,
   FieldDescription,
   FieldError,
   FieldGroup,
@@ -16,7 +16,6 @@ import {
   FieldTitle,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
@@ -28,9 +27,10 @@ import {
   type FieldErrors,
   type FieldName,
 } from "@/lib/email-schema";
-import { formatBytes } from "@/lib/format";
+import { formatBytes, shorten } from "@/lib/format";
 import { ACCEPT, LIMITS } from "@/lib/limits";
 import { useUiSounds } from "@/lib/sound";
+import { cn } from "@/lib/utils";
 
 const EMPTY: ComposeValues = {
   to: "",
@@ -45,13 +45,20 @@ const EMPTY: ComposeValues = {
 // Order used to move focus to the first problem after a failed submit.
 const FIELD_ORDER: FieldName[] = ["to", "cc", "bcc", "subject", "body", "attachments"];
 
-const ATTACHMENT_HINT = `Up to ${LIMITS.MAX_FILES} files, ${formatBytes(LIMITS.MAX_FILE_SIZE)} each, ${formatBytes(
-  LIMITS.MAX_TOTAL_SIZE,
-)} in total. PDF, images, TXT, CSV, DOCX, XLSX or ZIP.`;
-
-/** ["a", "b", "c"] → "a, b and c". */
-function formatList(items: string[]): string {
-  return items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+/** "12 / 255" under a text field; turns red once the limit is reached. */
+function CharacterCount({ length, max }: { length: number; max: number }) {
+  return (
+    <p
+      // The input's maxLength already enforces this; the count is a visual cue only.
+      aria-hidden
+      className={cn(
+        "text-right text-xs text-muted-foreground tabular-nums",
+        length >= max && "text-destructive",
+      )}
+    >
+      {length.toLocaleString()} / {max.toLocaleString()}
+    </p>
+  );
 }
 
 /** Focuses the first field with an error. Returns whether there was one. */
@@ -87,6 +94,7 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
   const edited = useRef(new Set<FieldName>());
   // Files refused at pick time (wrong type, too big…). They never enter state.
   const [rejectedFiles, setRejectedFiles] = useState<string[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
 
   // Server errors are copied into state when a new set arrives, so editing a
   // field can clear its server error without waiting for another round trip.
@@ -111,16 +119,13 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
   useEffect(() => {
     focusFirstInvalid(serverErrors);
   }, [serverErrors]);
+  const hasFiles = values.attachments.length > 0;
   const totalSize = values.attachments.reduce((sum, file) => sum + file.size, 0);
 
   // Send stays disabled until the required fields have content. Format problems
   // (e.g. "bob@") still need a click on Send, or a blur, to show.
-  const missing = [
-    !values.to.trim() && "a recipient",
-    !values.subject.trim() && "a subject",
-    !values.body.trim() && "a message",
-  ].filter((item): item is string => Boolean(item));
-  const canSend = missing.length === 0 && !isSending;
+  const hasRequired = Boolean(values.to.trim() && values.subject.trim() && values.body.trim());
+  const canSend = hasRequired && !isSending;
 
   function update<K extends keyof ComposeValues>(field: K, value: ComposeValues[K]) {
     setValues((current) => ({ ...current, [field]: value }));
@@ -132,6 +137,11 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
         return next;
       });
     }
+  }
+
+  function openFilePicker() {
+    sounds.press();
+    fileInput.current?.click();
   }
 
   function addFiles(picked: FileList | null) {
@@ -151,9 +161,9 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
       if (problem) {
         problems.push(problem);
       } else if (accepted.length >= LIMITS.MAX_FILES) {
-        problems.push(`"${file.name}" was not added: you can attach at most ${LIMITS.MAX_FILES} files`);
+        problems.push(`"${shorten(file.name)}" was not added: you can attach at most ${LIMITS.MAX_FILES} files`);
       } else if (total + file.size > LIMITS.MAX_TOTAL_SIZE) {
-        problems.push(`"${file.name}" was not added: attachments would exceed ${formatBytes(LIMITS.MAX_TOTAL_SIZE)} in total`);
+        problems.push(`"${shorten(file.name)}" was not added: attachments would exceed ${formatBytes(LIMITS.MAX_TOTAL_SIZE)} in total`);
       } else {
         accepted.push(file);
         total += file.size;
@@ -249,96 +259,112 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
       <FieldGroup className="gap-4">
         <Field data-invalid={!!errors.to}>
           <FieldLabel htmlFor="to">To</FieldLabel>
-          <InputGroup>
-            <InputGroupInput
-              id="to"
-              name="to"
-              value={values.to}
-              onChange={(e) => update("to", e.target.value)}
-              placeholder="alice@example.com, bob@example.com"
-              autoComplete="off"
-              spellCheck={false}
-              {...a11y("to", true)}
-            />
-            {(!showCc || !showBcc) && (
-              <InputGroupAddon align="inline-end">
-                {!showCc && (
-                  <InputGroupButton
-                    onClick={() => {
-                      sounds.reveal();
-                      setShowCc(true);
-                    }}
-                    aria-label="Add Cc recipients"
-                  >
-                    Cc
-                  </InputGroupButton>
-                )}
-                {!showBcc && (
-                  <InputGroupButton
-                    onClick={() => {
-                      sounds.reveal();
-                      setShowBcc(true);
-                    }}
-                    aria-label="Add Bcc recipients"
-                  >
-                    Bcc
-                  </InputGroupButton>
-                )}
-              </InputGroupAddon>
-            )}
-          </InputGroup>
-          <FieldDescription id="to-description">Separate multiple addresses with commas.</FieldDescription>
+          <Input
+            id="to"
+            name="to"
+            value={values.to}
+            onChange={(e) => update("to", e.target.value)}
+            placeholder="alice@example.com, bob@example.com"
+            autoComplete="off"
+            spellCheck={false}
+            {...a11y("to")}
+          />
           <FieldError id="to-error">{errors.to}</FieldError>
+          {(!showCc || !showBcc) && (
+            // Negative margin lines the icons up with the input's left edge.
+            <div className="-ml-1.5 flex gap-1">
+              {!showCc && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  className="text-muted-foreground"
+                  onClick={() => {
+                    sounds.reveal();
+                    setShowCc(true);
+                  }}
+                  aria-label="Add Cc recipients"
+                >
+                  <HugeiconsIcon icon={PlusSignIcon} data-icon="inline-start" />
+                  Cc
+                </Button>
+              )}
+              {!showBcc && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  className="text-muted-foreground"
+                  onClick={() => {
+                    sounds.reveal();
+                    setShowBcc(true);
+                  }}
+                  aria-label="Add Bcc recipients"
+                >
+                  <HugeiconsIcon icon={PlusSignIcon} data-icon="inline-start" />
+                  Bcc
+                </Button>
+              )}
+            </div>
+          )}
         </Field>
 
         {showCc && (
           <Field data-invalid={!!errors.cc}>
-            <FieldLabel htmlFor="cc">Cc</FieldLabel>
-            <InputGroup>
-              <InputGroupInput
-                id="cc"
-                name="cc"
-                value={values.cc}
-                onChange={(e) => update("cc", e.target.value)}
-                autoComplete="off"
-                spellCheck={false}
-                autoFocus
-                {...a11y("cc")}
-              />
-              <InputGroupAddon align="inline-end">
-                <InputGroupButton size="icon-xs"
-                  // Stays grey when the field is invalid, so it doesn't read as an error icon.
-                  className="text-muted-foreground" onClick={() => hideCopyField("cc")} aria-label="Remove Cc">
-                  <HugeiconsIcon icon={MinusSignIcon} />
-                </InputGroupButton>
-              </InputGroupAddon>
-            </InputGroup>
+            <div className="flex items-center justify-between gap-2">
+              <FieldLabel htmlFor="cc">Cc</FieldLabel>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                // Stays grey when the field is invalid, so it doesn't read as an error icon.
+                className="text-muted-foreground"
+                onClick={() => hideCopyField("cc")}
+                aria-label="Remove Cc"
+              >
+                <HugeiconsIcon icon={MinusSignIcon} />
+              </Button>
+            </div>
+            <Input
+              id="cc"
+              name="cc"
+              value={values.cc}
+              onChange={(e) => update("cc", e.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+              autoFocus
+              {...a11y("cc")}
+            />
             <FieldError id="cc-error">{errors.cc}</FieldError>
           </Field>
         )}
 
         {showBcc && (
           <Field data-invalid={!!errors.bcc}>
-            <FieldLabel htmlFor="bcc">Bcc</FieldLabel>
-            <InputGroup>
-              <InputGroupInput
-                id="bcc"
-                name="bcc"
-                value={values.bcc}
-                onChange={(e) => update("bcc", e.target.value)}
-                autoComplete="off"
-                spellCheck={false}
-                autoFocus
-                {...a11y("bcc", true)}
-              />
-              <InputGroupAddon align="inline-end">
-                <InputGroupButton size="icon-xs"
-                  // Stays grey when the field is invalid, so it doesn't read as an error icon.
-                  className="text-muted-foreground" onClick={() => hideCopyField("bcc")} aria-label="Remove Bcc">
-                  <HugeiconsIcon icon={MinusSignIcon} />
-                </InputGroupButton>
-              </InputGroupAddon>
-            </InputGroup>
+            <div className="flex items-center justify-between gap-2">
+              <FieldLabel htmlFor="bcc">Bcc</FieldLabel>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                // Stays grey when the field is invalid, so it doesn't read as an error icon.
+                className="text-muted-foreground"
+                onClick={() => hideCopyField("bcc")}
+                aria-label="Remove Bcc"
+              >
+                <HugeiconsIcon icon={MinusSignIcon} />
+              </Button>
+            </div>
+            <Input
+              id="bcc"
+              name="bcc"
+              value={values.bcc}
+              onChange={(e) => update("bcc", e.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+              autoFocus
+              {...a11y("bcc", true)}
+            />
             <FieldDescription id="bcc-description">Bcc recipients are hidden from everyone else.</FieldDescription>
             <FieldError id="bcc-error">{errors.bcc}</FieldError>
           </Field>
@@ -355,6 +381,7 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
             autoComplete="off"
             {...a11y("subject")}
           />
+          <CharacterCount length={values.subject.length} max={LIMITS.MAX_SUBJECT_LENGTH} />
           <FieldError id="subject-error">{errors.subject}</FieldError>
         </Field>
 
@@ -386,10 +413,16 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
             value={values.body}
             onChange={(e) => update("body", e.target.value)}
             placeholder={values.isHtml ? "<p>Hello,</p>\n<p>…</p>" : "Hello,"}
-            className={values.isHtml ? "min-h-48 font-mono" : "min-h-48"}
+            maxLength={LIMITS.MAX_BODY_LENGTH}
+            // Grows with the text up to 16 lines (10 on phones), then scrolls.
+            className={cn(
+              "max-h-[calc(16lh+1.125rem)] min-h-48 overflow-y-auto max-md:max-h-[calc(10lh+1.125rem)]",
+              values.isHtml && "font-mono",
+            )}
             spellCheck={!values.isHtml}
             {...a11y("body", values.isHtml)}
           />
+          <CharacterCount length={values.body.length} max={LIMITS.MAX_BODY_LENGTH} />
           {values.isHtml && (
             <FieldDescription id="body-description">
               A plain-text copy is sent too, for mail apps that don&apos;t show HTML.
@@ -403,20 +436,12 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
         <Field>
           <div className="flex items-center justify-between gap-2">
             <FieldTitle id="attachments-label">Attachments</FieldTitle>
-            <Button
-              id="attachments"
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                sounds.press();
-                fileInput.current?.click();
-              }}
-              aria-describedby="attachments-description"
-            >
-              <HugeiconsIcon icon={Attachment01Icon} data-icon="inline-start" />
-              Attach files
-            </Button>
+            {hasFiles && (
+              <Button id="attachments" type="button" variant="outline" size="sm" onClick={openFilePicker}>
+                <HugeiconsIcon icon={Attachment01Icon} data-icon="inline-start" />
+                Add more
+              </Button>
+            )}
           </div>
           <input
             ref={fileInput}
@@ -427,10 +452,43 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
             className="hidden"
             aria-labelledby="attachments-label"
           />
-          <FieldContent>
-            <AttachmentList files={values.attachments} onRemove={removeFile} />
-            <FieldDescription id="attachments-description">{ATTACHMENT_HINT}</FieldDescription>
-          </FieldContent>
+          {/* Files can be dropped anywhere in here, whether or not some are attached already. */}
+          <div
+            data-dragging={isDragging || undefined}
+            onDragOver={(e) => {
+              if (isSending) return;
+              e.preventDefault();
+              setIsDragging(true);
+            }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setIsDragging(false);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDragging(false);
+              if (!isSending) addFiles(e.dataTransfer.files);
+            }}
+            className="group/drop rounded-xl transition-colors data-dragging:bg-muted/60"
+          >
+            {hasFiles ? (
+              <AttachmentList files={values.attachments} onRemove={removeFile} />
+            ) : (
+              <Empty className="border border-foreground/15 transition-colors group-data-dragging/drop:border-foreground/40">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <HugeiconsIcon icon={Attachment01Icon} />
+                  </EmptyMedia>
+                  <EmptyTitle className="font-sans">{isDragging ? "Drop to attach" : "No attachments"}</EmptyTitle>
+                  <EmptyDescription>Drag files here, or browse to add them.</EmptyDescription>
+                </EmptyHeader>
+                <EmptyContent>
+                  <Button id="attachments" type="button" variant="outline" size="sm" onClick={openFilePicker}>
+                    Browse files
+                  </Button>
+                </EmptyContent>
+              </Empty>
+            )}
+          </div>
           <FieldError
             errors={[...rejectedFiles, errors.attachments].filter(Boolean).map((message) => ({ message }))}
           />
@@ -441,12 +499,7 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
       <Separator />
 
       <div className="flex items-center gap-4">
-        <Button
-          type="submit"
-          size="lg"
-          disabled={!canSend}
-          aria-describedby={missing.length > 0 && !isSending ? "send-hint" : undefined}
-        >
+        <Button type="submit" size="lg" disabled={!canSend}>
           {isSending ? (
             <>
               <Spinner data-icon="inline-start" />
@@ -459,12 +512,6 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
             </>
           )}
         </Button>
-        {/* A disabled button can't explain itself, so say what's missing. */}
-        {missing.length > 0 && !isSending && (
-          <p id="send-hint" className="text-muted-foreground">
-            Add {formatList(missing)} to send.
-          </p>
-        )}
         {values.attachments.length > 0 && (
           <p className="ml-auto text-muted-foreground tabular-nums">
             {values.attachments.length} {values.attachments.length === 1 ? "file" : "files"}, {formatBytes(totalSize)}

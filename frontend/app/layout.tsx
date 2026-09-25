@@ -43,7 +43,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html lang="en" className={`${inter.variable} ${cooper.variable}`}>
       <body>
         <Toaster>
-          <main className="mx-auto max-w-column px-4 pt-20 pb-10 max-md:px-6 max-md:pt-8">{children}</main>
+          <main className="mx-auto max-w-column px-4 pt-8 pb-10 max-md:px-6">{children}</main>
         </Toaster>
       </body>
     </html>

@@ -10,3 +10,10 @@ export function formatBytes(bytes: number): string {
   }
   return `${Number(value.toFixed(1))} ${units[unit]}`;
 }
+
+/** Shortens long text quoted back in a message, keeping both ends: "abcdefghij…xyz@example.com". */
+export function shorten(text: string, max = 40): string {
+  if (text.length <= max) return text;
+  const tail = Math.floor((max - 1) / 3);
+  return `${text.slice(0, max - 1 - tail)}…${text.slice(-tail)}`;
+}

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { formatBytes } from "@/lib/format";
+import { formatBytes, shorten } from "@/lib/format";
 import { ALLOWED_EXTENSIONS, LIMITS } from "@/lib/limits";
 
 export type ComposeValues = {
@@ -27,17 +27,18 @@ export function splitAddresses(value: string): string[] {
 
 /** Why a file can't be attached, or null if it's fine. */
 export function checkFile(file: File): string | null {
+  const name = shorten(file.name);
   const dot = file.name.lastIndexOf(".");
   const extension = dot === -1 ? "" : file.name.slice(dot).toLowerCase();
 
   if (!(ALLOWED_EXTENSIONS as readonly string[]).includes(extension)) {
-    return `"${file.name}" is not an allowed file type`;
+    return `"${name}" is not an allowed file type`;
   }
   if (file.size === 0) {
-    return `"${file.name}" is empty`;
+    return `"${name}" is empty`;
   }
   if (file.size > LIMITS.MAX_FILE_SIZE) {
-    return `"${file.name}" is larger than ${formatBytes(LIMITS.MAX_FILE_SIZE)}`;
+    return `"${name}" is larger than ${formatBytes(LIMITS.MAX_FILE_SIZE)}`;
   }
   return null;
 }
@@ -45,7 +46,7 @@ export function checkFile(file: File): string | null {
 const addressList = z
   .string()
   .transform(splitAddresses)
-  .pipe(z.array(z.email({ error: (issue) => `"${String(issue.input)}" is not a valid email address` })));
+  .pipe(z.array(z.email({ error: (issue) => `"${shorten(String(issue.input))}" is not a valid email address` })));
 
 const composeSchema = z
   .object({
