@@ -1,6 +1,6 @@
-# Email Composer
+# Airmail
 
-An email sending system with two parts:
+Airmail is an email sending system with two parts:
 
 - **Backend:** a REST API (Node.js + Express) that sends email over SMTP to one or more recipients, with CC/BCC, HTML or plain-text bodies, and file attachments. It validates every input, handles provider failures safely, and never crashes on bad requests.
 - **Frontend:** a Next.js app that lets you write an email, attach files, send it, and see a clear success or error message.
@@ -26,8 +26,8 @@ It runs with **no setup**. If no SMTP server is configured, the API creates a th
 **Requirements:** Node.js 20.9 or newer. pnpm is set up through Corepack, which ships with Node.
 
 ```bash
-git clone <repo-url> email-composer
-cd email-composer
+git clone <repo-url> airmail
+cd airmail
 
 corepack enable      # installs the pnpm version pinned in package.json
 pnpm install         # installs backend and frontend (one workspace)
@@ -98,6 +98,7 @@ Settings are validated with zod when the server starts. A missing or malformed v
 | Variable | Default | Description |
 |---|---|---|
 | `NEXT_PUBLIC_API_URL` | `http://localhost:4000` | Where the API runs. This value is built into the browser code, so never put a secret here. |
+| `NEXT_PUBLIC_SITE_URL` | `http://localhost:3000` | Public URL of the frontend, used for absolute links in social previews. Only needed when deployed. |
 
 `.env` files are ignored by git. Only the `.env.example` files are committed.
 
@@ -137,7 +138,7 @@ Settings are validated with zod when the server starts. A missing or malformed v
 
 **Crash safety.** Express 5 passes errors from async route handlers to the error handler automatically. An unhandled promise rejection is logged and the server keeps running. An uncaught exception is logged and triggers a graceful shutdown, because the process state can no longer be trusted. The server also shuts down cleanly on `SIGINT`/`SIGTERM`.
 
-**Frontend.** The form checks the same rules as the API, so problems show up instantly: files are checked as soon as they're picked, a field's error appears when you leave a field you've edited, and from then on it updates as you type. **Send** stays disabled until To, Subject and Message have content, with a hint saying what's missing. The server still has the final say. When the API returns a 400, each error is shown under its field and focus moves to the first one. While an email is sending, every control is disabled, which also prevents double submits. After a successful send, the form clears and a success toast appears, with a **View** button for the Ethereal preview. Errors stay inline under the form, because they need to stay visible while the user fixes things.
+**Frontend.** The form checks the same rules as the API, so problems show up instantly: files are checked as soon as they're picked, a field's error appears when you leave a field you've edited, and from then on it updates as you type. **Send** stays disabled until To, Subject and Message have content, with a hint saying what's missing. The server still has the final say. When the API returns a 400, each error is shown under its field and focus moves to the first one. While an email is sending, every control is disabled, which also prevents double submits. After a successful send, the form clears, confetti fires from the bottom corners of the screen for about a second (skipped if the OS asks for reduced motion; the confetti library only loads on the first successful send), and a success toast appears with a **View** button for the Ethereal preview. Errors stay inline under the form, because they need to stay visible while the user fixes things.
 
 **Sound.** Small interface sounds give feedback on actions, using the same `@web-kits/audio` set as konpeeyush.me. They're synthesised with the Web Audio API, so there are no audio files, and they only play in response to something the user did:
 
@@ -274,6 +275,9 @@ backend/
   requests.http                 manual API requests
 frontend/
   app/                          layout, page, theme (globals.css)
+                                favicon.ico, icon.png, apple-icon.png, manifest.ts, opengraph-image, twitter-image
+  assets/icon.png               app icon used on the Open Graph card
+  public/                       manifest icons (192, 512, maskable)
   components/
     email-composer.tsx          send lifecycle: sending → sent / failed
     compose-form.tsx            fields, client-side validation, attachments
@@ -282,6 +286,9 @@ frontend/
   .web-kits/                    generated sound definitions (@web-kits/audio)
   lib/
     sound.ts                    interface sound hooks
+    confetti.ts                 success confetti (loaded on demand)
+    brand.tsx                   name and copy
+    og.tsx                      the Open Graph card
     api.ts                      POST /api/emails, error normalisation
     email-schema.ts             client-side rules (mirror the API)
     limits.ts                   limits and allowed types (mirror the API)

@@ -1,5 +1,5 @@
 {
-  "name": "email-composer",
+  "name": "airmail",
   "private": true,
   "description": "Email sending system — Express API + Next.js frontend",
   "packageManager": "pnpm@11.0.6",

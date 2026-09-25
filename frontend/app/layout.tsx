@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import localFont from "next/font/local";
 
 import { Toaster } from "@/components/ui/toast";
+import { APP_NAME, DESCRIPTION, SITE_URL } from "@/lib/brand";
 
 import "./globals.css";
 
@@ -28,8 +29,13 @@ const cooper = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Email Composer",
-  description: "Compose and send emails with CC, BCC, HTML and attachments.",
+  metadataBase: new URL(SITE_URL),
+  title: APP_NAME,
+  description: DESCRIPTION,
+  applicationName: APP_NAME,
+  // The OG/Twitter images come from app/opengraph-image.tsx and app/twitter-image.tsx.
+  openGraph: { title: APP_NAME, description: DESCRIPTION, siteName: APP_NAME, type: "website", locale: "en_US" },
+  twitter: { card: "summary_large_image", title: APP_NAME, description: DESCRIPTION },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

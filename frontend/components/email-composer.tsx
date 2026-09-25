@@ -8,6 +8,7 @@ import { ComposeForm } from "@/components/compose-form";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "@/components/ui/toast";
 import { SendError, sendEmail, type SendResult } from "@/lib/api";
+import { celebrate } from "@/lib/confetti";
 import type { ComposeValues, FieldErrors } from "@/lib/email-schema";
 import { useUiSounds } from "@/lib/sound";
 
@@ -52,6 +53,7 @@ export function EmailComposer() {
     try {
       const { message, data } = await sendEmail(values);
       sounds.success();
+      celebrate();
       showSentToast(message, data);
       setStatus({ kind: "idle" });
       setFormKey((key) => key + 1);
