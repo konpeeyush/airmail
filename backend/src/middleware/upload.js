@@ -28,11 +28,12 @@ export const ALLOWED_TYPES = Object.freeze({
   '.zip': ['application/zip', 'application/x-zip-compressed'],
 });
 
+// Sizes can be fractional MB in env (e.g. 2.5); multer needs whole bytes.
 export const UPLOAD_LIMITS = Object.freeze({
   FIELD_NAME: 'attachments',
-  MAX_FILE_SIZE: env.MAX_FILE_SIZE_MB * MB,
+  MAX_FILE_SIZE: Math.floor(env.MAX_FILE_SIZE_MB * MB),
   MAX_FILES: env.MAX_FILES,
-  MAX_TOTAL_SIZE: env.MAX_TOTAL_SIZE_MB * MB,
+  MAX_TOTAL_SIZE: Math.floor(env.MAX_TOTAL_SIZE_MB * MB),
 });
 
 const allowedList = Object.keys(ALLOWED_TYPES).join(', ');

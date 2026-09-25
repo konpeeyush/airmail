@@ -1,0 +1,125 @@
+# Manual API checks. Open in VS Code with the "REST Client" extension
+# (or JetBrains HTTP Client) and click "Send Request" above each block.
+# Start the API first: `pnpm dev` from the repo root.
+
+@api = http://localhost:4000/api
+
+### Health
+GET {{api}}/health
+
+### Unknown route → 404
+GET {{api}}/nope
+
+### Plain-text email (JSON) → 200, open data.previewUrl
+POST {{api}}/emails
+Content-Type: application/json
+
+{
+  "to": "alice@example.com, bob@example.com",
+  "cc": "carol@example.com",
+  "bcc": "dave@example.com",
+  "subject": "Hello from Email Composer",
+  "body": "This is a plain-text email."
+}
+
+### HTML email (JSON) → 200 (a plain-text part is generated too)
+POST {{api}}/emails
+Content-Type: application/json
+
+{
+  "to": "alice@example.com",
+  "subject": "HTML email",
+  "body": "<h1>Hello</h1><p>This is <strong>HTML</strong> with a <a href=\"https://example.com\">link</a>.</p>",
+  "isHtml": true
+}
+
+### Recipient normalisation → 200, 4 unique recipients
+POST {{api}}/emails
+Content-Type: application/json
+
+{
+  "to": ["Alice@Example.com; alice@example.com", "bob@example.com"],
+  "cc": "BOB@example.com, carol@example.com",
+  "bcc": "carol@example.com, dave@example.com",
+  "subject": "Dedupe test",
+  "body": "Each person gets this once."
+}
+
+### Multipart with an attachment → 200
+POST {{api}}/emails
+Content-Type: multipart/form-data; boundary=BOUNDARY
+
+--BOUNDARY
+Content-Disposition: form-data; name="to"
+
+alice@example.com
+--BOUNDARY
+Content-Disposition: form-data; name="subject"
+
+With attachment
+--BOUNDARY
+Content-Disposition: form-data; name="body"
+
+See the attached file.
+--BOUNDARY
+Content-Disposition: form-data; name="attachments"; filename="notes.txt"
+Content-Type: text/plain
+
+These are my notes.
+--BOUNDARY--
+
+### Disallowed file type → 415
+POST {{api}}/emails
+Content-Type: multipart/form-data; boundary=BOUNDARY
+
+--BOUNDARY
+Content-Disposition: form-data; name="to"
+
+alice@example.com
+--BOUNDARY
+Content-Disposition: form-data; name="subject"
+
+Bad attachment
+--BOUNDARY
+Content-Disposition: form-data; name="body"
+
+This should be rejected.
+--BOUNDARY
+Content-Disposition: form-data; name="attachments"; filename="setup.exe"
+Content-Type: application/x-msdownload
+
+MZ
+--BOUNDARY--
+
+### Everything missing → 400 with per-field errors
+POST {{api}}/emails
+Content-Type: application/json
+
+{}
+
+### Invalid addresses → 400 naming each bad address
+POST {{api}}/emails
+Content-Type: application/json
+
+{
+  "to": "alice@example.com, bob@",
+  "cc": "not-an-email",
+  "subject": "Bad recipients",
+  "body": "x"
+}
+
+### Header injection attempt → 400
+POST {{api}}/emails
+Content-Type: application/json
+
+{
+  "to": "alice@example.com",
+  "subject": "Hi\r\nBcc: victim@example.com",
+  "body": "x"
+}
+
+### Malformed JSON → 400
+POST {{api}}/emails
+Content-Type: application/json
+
+{bad json

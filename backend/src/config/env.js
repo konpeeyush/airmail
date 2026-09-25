@@ -34,6 +34,10 @@ const envSchema = z
     MAX_FILE_SIZE_MB: z.coerce.number().positive().default(5),
     MAX_FILES: z.coerce.number().int().positive().default(5),
     MAX_TOTAL_SIZE_MB: z.coerce.number().positive().default(15),
+
+    // Emails one IP can send per window
+    RATE_LIMIT_MAX: z.coerce.number().int().positive().default(20),
+    RATE_LIMIT_WINDOW_MINUTES: z.coerce.number().positive().default(15),
   })
   .superRefine((cfg, ctx) => {
     if (cfg.SMTP_HOST) {

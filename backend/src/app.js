@@ -1,6 +1,7 @@
 import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
+import morgan from 'morgan';
 
 import { env } from './config/env.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
@@ -15,6 +16,12 @@ import routes from './routes/index.js';
  */
 export function createApp() {
   const app = express();
+
+  // One line per request: method, path, status, time. Compact while developing,
+  // Apache "combined" format in production, silent in tests.
+  if (env.NODE_ENV !== 'test') {
+    app.use(morgan(env.isProduction ? 'combined' : 'dev'));
+  }
 
   app.use(helmet());
   app.use(cors({ origin: env.CORS_ORIGIN }));
