@@ -28,6 +28,12 @@ const envSchema = z
     SMTP_USER: optionalString,
     SMTP_PASS: optionalString,
     MAIL_FROM: optionalString, // defaults to SMTP_USER
+
+    // Attachments. Keep the total well under 25 MB: base64 encoding makes
+    // attachments ~37% bigger, and most providers (Gmail included) cap at 25 MB.
+    MAX_FILE_SIZE_MB: z.coerce.number().positive().default(5),
+    MAX_FILES: z.coerce.number().int().positive().default(5),
+    MAX_TOTAL_SIZE_MB: z.coerce.number().positive().default(15),
   })
   .superRefine((cfg, ctx) => {
     if (cfg.SMTP_HOST) {

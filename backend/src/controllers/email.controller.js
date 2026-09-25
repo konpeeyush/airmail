@@ -1,20 +1,39 @@
+import { convert } from 'html-to-text';
+
 import { sendEmail } from '../services/email.service.js';
 
 /**
+ * Plain-text version of an HTML body. Sent alongside the HTML so clients that
+ * can't (or won't) render HTML still show readable text, and it helps with
+ * spam scoring.
+ */
+function htmlToPlainText(html) {
+  return convert(html, { wordwrap: false, selectors: [{ selector: 'img', format: 'skip' }] });
+}
+
+/**
  * POST /api/emails
- * req.body has already been validated and normalised by the validate middleware.
+ * req.body has already been validated and normalised, and req.files parsed
+ * and checked, by the middleware in front of this handler.
  * The controller only translates HTTP into a mail payload and back.
  * Sending (and SMTP error handling) lives in the service.
  */
 export async function sendEmailHandler(req, res) {
   const { to, cc, bcc, subject, body, isHtml } = req.body;
 
+  const attachments = req.files.map((file) => ({
+    filename: file.originalname,
+    content: file.buffer,
+    contentType: file.mimetype,
+  }));
+
   const result = await sendEmail({
     to,
     cc: cc.length ? cc : undefined,
     bcc: bcc.length ? bcc : undefined,
     subject,
-    ...(isHtml ? { html: body } : { text: body }),
+    ...(isHtml ? { html: body, text: htmlToPlainText(body) } : { text: body }),
+    attachments,
   });
 
   // The provider can accept the message but refuse some addresses.
@@ -25,6 +44,6 @@ export async function sendEmailHandler(req, res) {
     message: partial
       ? `Email sent, but ${result.rejected.length} recipient(s) were rejected by the provider`
       : `Email sent to ${result.accepted.length} recipient(s)`,
-    data: result,
+    data: { ...result, attachments: attachments.length },
   });
 }
