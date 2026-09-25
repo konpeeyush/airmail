@@ -137,7 +137,19 @@ Settings are validated with zod when the server starts. A missing or malformed v
 
 **Crash safety.** Express 5 passes errors from async route handlers to the error handler automatically. An unhandled promise rejection is logged and the server keeps running. An uncaught exception is logged and triggers a graceful shutdown, because the process state can no longer be trusted. The server also shuts down cleanly on `SIGINT`/`SIGTERM`.
 
-**Frontend.** The form checks the same rules as the API, so problems show up instantly: files are checked as soon as they're picked, and errors appear after the first submit and update as you type. The server still has the final say. When the API returns a 400, each error is shown under its field and focus moves to the first one. While an email is sending, every control is disabled, which also prevents double submits. After a successful send, the form clears and the result shows the Ethereal preview link.
+**Frontend.** The form checks the same rules as the API, so problems show up instantly: files are checked as soon as they're picked, a field's error appears when you leave a field you've edited, and from then on it updates as you type. **Send** stays disabled until To, Subject and Message have content, with a hint saying what's missing. The server still has the final say. When the API returns a 400, each error is shown under its field and focus moves to the first one. While an email is sending, every control is disabled, which also prevents double submits. After a successful send, the form clears and the result shows the Ethereal preview link.
+
+**Sound.** Small interface sounds give feedback on actions, using the same `@web-kits/audio` set as konpeeyush.me. They're synthesised with the Web Audio API, so there are no audio files, and they only play in response to something the user did:
+
+| Action | Sound |
+|---|---|
+| Clicking into a field | a soft tick (not on keyboard focus, and not when clicking inside the field you're already typing in) |
+| Plain text ↔ HTML | tab switch |
+| Showing / removing Cc or Bcc | expand / collapse |
+| Attach files, files added, file removed | click, select, deselect |
+| Send | send, then success or error when the API answers |
+| An inline error appearing when you leave a field | error (once per new error, never while typing) |
+| Send with remaining problems, or a refused file | warning |
 
 ---
 
@@ -267,7 +279,9 @@ frontend/
     compose-form.tsx            fields, client-side validation, attachments
     attachment-list.tsx
     ui/                         shadcn/ui components (Base UI)
+  .web-kits/                    generated sound definitions (@web-kits/audio)
   lib/
+    sound.ts                    interface sound hooks
     api.ts                      POST /api/emails, error normalisation
     email-schema.ts             client-side rules (mirror the API)
     limits.ts                   limits and allowed types (mirror the API)

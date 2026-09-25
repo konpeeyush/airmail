@@ -8,6 +8,7 @@ import { ComposeForm } from "@/components/compose-form";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { SendError, sendEmail, type SendResult } from "@/lib/api";
 import type { ComposeValues, FieldErrors } from "@/lib/email-schema";
+import { useUiSounds } from "@/lib/sound";
 
 type Status =
   | { kind: "idle" }
@@ -23,14 +24,17 @@ export function EmailComposer() {
   // Changing the key remounts the form, which clears every field after a successful send.
   const [formKey, setFormKey] = useState(0);
   const outcome = useRef<HTMLDivElement>(null);
+  const sounds = useUiSounds();
 
   async function handleSubmit(values: ComposeValues) {
     setStatus({ kind: "sending" });
     try {
       const { message, data } = await sendEmail(values);
+      sounds.success();
       setStatus({ kind: "sent", message, result: data });
       setFormKey((key) => key + 1);
     } catch (error) {
+      sounds.error();
       setStatus({
         kind: "failed",
         error: error instanceof SendError ? error : new SendError("Something went wrong. Please try again.", 0),

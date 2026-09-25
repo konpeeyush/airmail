@@ -117,6 +117,13 @@
     overflow-y: scroll;
   }
 
+  /* Tailwind v4 resets buttons to the default cursor. Everything clickable
+     gets a pointer; disabled controls keep the default arrow. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+
   ::selection {
     color: #111;
     background: #ededed;

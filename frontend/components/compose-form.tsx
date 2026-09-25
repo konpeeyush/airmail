@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Attachment01Icon, MailSend01Icon } from "@hugeicons/core-free-icons";
+import { Attachment01Icon, MailSend01Icon, MinusSignIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
 import { AttachmentList } from "@/components/attachment-list";
@@ -30,6 +30,7 @@ import {
 } from "@/lib/email-schema";
 import { formatBytes } from "@/lib/format";
 import { ACCEPT, LIMITS } from "@/lib/limits";
+import { useUiSounds } from "@/lib/sound";
 
 const EMPTY: ComposeValues = {
   to: "",
@@ -47,6 +48,11 @@ const FIELD_ORDER: FieldName[] = ["to", "cc", "bcc", "subject", "body", "attachm
 const ATTACHMENT_HINT = `Up to ${LIMITS.MAX_FILES} files, ${formatBytes(LIMITS.MAX_FILE_SIZE)} each, ${formatBytes(
   LIMITS.MAX_TOTAL_SIZE,
 )} in total. PDF, images, TXT, CSV, DOCX, XLSX or ZIP.`;
+
+/** ["a", "b", "c"] → "a, b and c". */
+function formatList(items: string[]): string {
+  return items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+}
 
 /** Focuses the first field with an error. Returns whether there was one. */
 function focusFirstInvalid(errors: FieldErrors): boolean {
@@ -70,9 +76,15 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
   const [values, setValues] = useState<ComposeValues>(EMPTY);
   const [showCc, setShowCc] = useState(false);
   const [showBcc, setShowBcc] = useState(false);
-  // Errors appear only after the first submit attempt, then update live as
-  // the user fixes things ("reward early, punish late").
+  // When errors show ("reward early, punish late"):
+  // - a field you've edited shows its error when you leave it (blur)
+  // - from then on that field's error updates live, so fixing it clears it
+  // - clicking Send shows every remaining error at once
+  // Typing never shows an error mid-word, and tabbing past an empty field
+  // doesn't flag it as required.
   const [attempted, setAttempted] = useState(false);
+  const [touched, setTouched] = useState<ReadonlySet<FieldName>>(new Set());
+  const edited = useRef(new Set<FieldName>());
   // Files refused at pick time (wrong type, too big…). They never enter state.
   const [rejectedFiles, setRejectedFiles] = useState<string[]>([]);
 
@@ -86,9 +98,14 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
   }
 
   const fileInput = useRef<HTMLInputElement>(null);
+  const sounds = useUiSounds();
 
   // Client rules win when both disagree; the server only adds what the client can't know.
-  const errors: FieldErrors = { ...openServerErrors, ...(attempted ? validateCompose(values) : {}) };
+  const clientErrors = validateCompose(values);
+  const visibleClientErrors: FieldErrors = attempted
+    ? clientErrors
+    : Object.fromEntries(Object.entries(clientErrors).filter(([field]) => touched.has(field as FieldName)));
+  const errors: FieldErrors = { ...openServerErrors, ...visibleClientErrors };
 
   // Move focus to the first field the server rejected.
   useEffect(() => {
@@ -96,8 +113,18 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
   }, [serverErrors]);
   const totalSize = values.attachments.reduce((sum, file) => sum + file.size, 0);
 
+  // Send stays disabled until the required fields have content. Format problems
+  // (e.g. "bob@") still need a click on Send, or a blur, to show.
+  const missing = [
+    !values.to.trim() && "a recipient",
+    !values.subject.trim() && "a subject",
+    !values.body.trim() && "a message",
+  ].filter((item): item is string => Boolean(item));
+  const canSend = missing.length === 0 && !isSending;
+
   function update<K extends keyof ComposeValues>(field: K, value: ComposeValues[K]) {
     setValues((current) => ({ ...current, [field]: value }));
+    edited.current.add(field as FieldName);
     if (field in openServerErrors) {
       setOpenServerErrors((current) => {
         const next = { ...current };
@@ -133,13 +160,35 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
       }
     }
 
+    if (problems.length > 0) sounds.warning();
+    else if (accepted.length > values.attachments.length) sounds.add();
+
     update("attachments", accepted);
     setRejectedFiles(problems);
     // Clear the native input so picking the same file again still fires onChange.
     if (fileInput.current) fileInput.current.value = "";
   }
 
+  /**
+   * Collapses the Cc or Bcc field. Its value goes with it, so hidden addresses
+   * are never sent, and focus returns to To so keyboard users aren't lost.
+   */
+  function hideCopyField(field: "cc" | "bcc") {
+    sounds.hide();
+    update(field, "");
+    edited.current.delete(field);
+    setTouched((current) => {
+      const next = new Set(current);
+      next.delete(field);
+      return next;
+    });
+    if (field === "cc") setShowCc(false);
+    else setShowBcc(false);
+    document.getElementById("to")?.focus();
+  }
+
   function removeFile(index: number) {
+    sounds.remove();
     update(
       "attachments",
       values.attachments.filter((_, i) => i !== index),
@@ -149,12 +198,16 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isSending) return;
+    if (!canSend) return;
     setAttempted(true);
 
     const found = validateCompose(values);
-    if (focusFirstInvalid(found)) return;
+    if (focusFirstInvalid(found)) {
+      sounds.warning();
+      return;
+    }
 
+    sounds.send();
     onSubmit(values);
   }
 
@@ -172,7 +225,27 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
   return (
     <form noValidate onSubmit={handleSubmit} aria-busy={isSending} className="flex flex-col gap-6">
       {/* A disabled fieldset disables every control inside it natively. */}
-      <fieldset disabled={isSending} className="min-w-0">
+      <fieldset
+        disabled={isSending}
+        className="min-w-0"
+        // One delegated listener for every text field: a soft tick when a click
+        // moves focus into a field. Keyboard focus and clicks inside the field
+        // you're already typing in stay silent.
+        // Delegated blur (React's onBlur bubbles): leaving a field you've edited reveals its error.
+        onBlur={(event) => {
+          const field = event.target.id as FieldName;
+          if (edited.current.has(field) && !touched.has(field)) {
+            setTouched((current) => new Set(current).add(field));
+            // The moment an inline error first appears. Not while typing, and not
+            // again for an error that is already showing (or after Send showed them all).
+            if (clientErrors[field] && !attempted) sounds.error();
+          }
+        }}
+        onPointerDown={(event) => {
+          const target = event.target as HTMLElement;
+          if (target.matches("input, textarea") && target !== document.activeElement) sounds.field();
+        }}
+      >
       <FieldGroup className="gap-4">
         <Field data-invalid={!!errors.to}>
           <FieldLabel htmlFor="to">To</FieldLabel>
@@ -190,12 +263,24 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
             {(!showCc || !showBcc) && (
               <InputGroupAddon align="inline-end">
                 {!showCc && (
-                  <InputGroupButton onClick={() => setShowCc(true)} aria-label="Add Cc recipients">
+                  <InputGroupButton
+                    onClick={() => {
+                      sounds.reveal();
+                      setShowCc(true);
+                    }}
+                    aria-label="Add Cc recipients"
+                  >
                     Cc
                   </InputGroupButton>
                 )}
                 {!showBcc && (
-                  <InputGroupButton onClick={() => setShowBcc(true)} aria-label="Add Bcc recipients">
+                  <InputGroupButton
+                    onClick={() => {
+                      sounds.reveal();
+                      setShowBcc(true);
+                    }}
+                    aria-label="Add Bcc recipients"
+                  >
                     Bcc
                   </InputGroupButton>
                 )}
@@ -209,16 +294,25 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
         {showCc && (
           <Field data-invalid={!!errors.cc}>
             <FieldLabel htmlFor="cc">Cc</FieldLabel>
-            <Input
-              id="cc"
-              name="cc"
-              value={values.cc}
-              onChange={(e) => update("cc", e.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-              autoFocus
-              {...a11y("cc")}
-            />
+            <InputGroup>
+              <InputGroupInput
+                id="cc"
+                name="cc"
+                value={values.cc}
+                onChange={(e) => update("cc", e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+                autoFocus
+                {...a11y("cc")}
+              />
+              <InputGroupAddon align="inline-end">
+                <InputGroupButton size="icon-xs"
+                  // Stays grey when the field is invalid, so it doesn't read as an error icon.
+                  className="text-muted-foreground" onClick={() => hideCopyField("cc")} aria-label="Remove Cc">
+                  <HugeiconsIcon icon={MinusSignIcon} />
+                </InputGroupButton>
+              </InputGroupAddon>
+            </InputGroup>
             <FieldError id="cc-error">{errors.cc}</FieldError>
           </Field>
         )}
@@ -226,16 +320,25 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
         {showBcc && (
           <Field data-invalid={!!errors.bcc}>
             <FieldLabel htmlFor="bcc">Bcc</FieldLabel>
-            <Input
-              id="bcc"
-              name="bcc"
-              value={values.bcc}
-              onChange={(e) => update("bcc", e.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-              autoFocus
-              {...a11y("bcc", true)}
-            />
+            <InputGroup>
+              <InputGroupInput
+                id="bcc"
+                name="bcc"
+                value={values.bcc}
+                onChange={(e) => update("bcc", e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+                autoFocus
+                {...a11y("bcc", true)}
+              />
+              <InputGroupAddon align="inline-end">
+                <InputGroupButton size="icon-xs"
+                  // Stays grey when the field is invalid, so it doesn't read as an error icon.
+                  className="text-muted-foreground" onClick={() => hideCopyField("bcc")} aria-label="Remove Bcc">
+                  <HugeiconsIcon icon={MinusSignIcon} />
+                </InputGroupButton>
+              </InputGroupAddon>
+            </InputGroup>
             <FieldDescription id="bcc-description">Bcc recipients are hidden from everyone else.</FieldDescription>
             <FieldError id="bcc-error">{errors.bcc}</FieldError>
           </Field>
@@ -249,6 +352,7 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
             value={values.subject}
             onChange={(e) => update("subject", e.target.value)}
             maxLength={LIMITS.MAX_SUBJECT_LENGTH}
+            autoComplete="off"
             {...a11y("subject")}
           />
           <FieldError id="subject-error">{errors.subject}</FieldError>
@@ -260,7 +364,11 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
             <ToggleGroup
               value={[values.isHtml ? "html" : "text"]}
               // Base UI allows deselecting the active item; ignore that so one format is always chosen.
-              onValueChange={(next) => next.length > 0 && update("isHtml", next[0] === "html")}
+              onValueChange={(next) => {
+                if (next.length === 0) return;
+                sounds.tab();
+                update("isHtml", next[0] === "html");
+              }}
               variant="outline"
               size="sm"
               spacing={0}
@@ -300,7 +408,10 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => fileInput.current?.click()}
+              onClick={() => {
+                sounds.press();
+                fileInput.current?.click();
+              }}
               aria-describedby="attachments-description"
             >
               <HugeiconsIcon icon={Attachment01Icon} data-icon="inline-start" />
@@ -329,8 +440,13 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
 
       <Separator />
 
-      <div className="flex items-center justify-between gap-4">
-        <Button type="submit" size="lg" disabled={isSending}>
+      <div className="flex items-center gap-4">
+        <Button
+          type="submit"
+          size="lg"
+          disabled={!canSend}
+          aria-describedby={missing.length > 0 && !isSending ? "send-hint" : undefined}
+        >
           {isSending ? (
             <>
               <Spinner data-icon="inline-start" />
@@ -343,8 +459,14 @@ export function ComposeForm({ onSubmit, isSending = false, serverErrors = NO_ERR
             </>
           )}
         </Button>
+        {/* A disabled button can't explain itself, so say what's missing. */}
+        {missing.length > 0 && !isSending && (
+          <p id="send-hint" className="text-muted-foreground">
+            Add {formatList(missing)} to send.
+          </p>
+        )}
         {values.attachments.length > 0 && (
-          <p className="text-muted-foreground tabular-nums">
+          <p className="ml-auto text-muted-foreground tabular-nums">
             {values.attachments.length} {values.attachments.length === 1 ? "file" : "files"}, {formatBytes(totalSize)}
           </p>
         )}
